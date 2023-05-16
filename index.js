@@ -52,7 +52,7 @@ wss.on('connection', function connection(ws) {
     ws.on('close', function () {
         delete clients[clientId];
         console.log(`WebSocket client disconnected with ID ${clientId}`);
-        
+
         // delete from room
         for (const roomId in rooms) {
             const index = rooms[roomId].indexOf(clientId);
@@ -98,6 +98,17 @@ app.post('/event', function (req, res) {
                     eventData
                 }
             }), 200;
+        }
+
+        // send message all client in room email
+        if (rooms[clientId]) {
+            rooms[clientId].forEach(clientId => {
+                if (clients[clientId]) {
+                    clients[clientId].send(JSON.stringify({ event, eventData }));
+                }
+            });
+
+            console.log(`Send message to room ${clientId}`);
         }
 
         return res.send('client not found or disconected'), 404;
