@@ -3,15 +3,29 @@ const app = express();
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const bodyParser = require('body-parser');
+const fs = require('fs');
+const https = require('https');
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
+// Read the SSL/TLS certificate and private key
+const options = {
+    cert: fs.readFileSync('cert.pem'),
+    key: fs.readFileSync('key.pem'),
+};
+
+// Create an HTTPS server
+const server = https.createServer(options);
+const appHttps = https.createServer(options, app);
+
 // Create a new WebSocket server
-const wss = new WebSocket.Server({ port: 20000 });
+const wss = new WebSocket.Server({ server });
 
 const clients = {};
+const clientsString = [];
 const rooms = {};
+const roomsString = {};
 
 // Handle WebSocket connections
 wss.on('connection', function connection(ws) {
@@ -20,6 +34,7 @@ wss.on('connection', function connection(ws) {
     // Log the new client connection
     const clientId = uuidv4(); // generate a unique client ID
     clients[clientId] = ws; // store the WebSocket client in the clients object
+    clientsString.push(clientId);
 
     console.log(`WebSocket client connected with ID ${clientId}`);
 
@@ -40,9 +55,11 @@ wss.on('connection', function connection(ws) {
                 // add client to room
                 if (!rooms[roomId]) {
                     rooms[roomId] = [];
+                    roomsString[roomId] = [];
                 }
 
                 rooms[roomId].push(clientId);
+                roomsString[roomId].push(clientId);
 
                 clients[clientId].send(JSON.stringify({ type: 'join-room', roomId, clientId }));
             }
@@ -51,6 +68,7 @@ wss.on('connection', function connection(ws) {
 
     ws.on('close', function () {
         delete clients[clientId];
+        delete clientsString[clientId];
         console.log(`WebSocket client disconnected with ID ${clientId}`);
 
         // delete from room
@@ -58,6 +76,7 @@ wss.on('connection', function connection(ws) {
             const index = rooms[roomId].indexOf(clientId);
             if (index > -1) {
                 rooms[roomId].splice(index, 1);
+                roomsString[roomId].splice(index, 1);
                 console.log(`WebSocket client ${clientId} removed from room ${roomId}`);
             }
         }
@@ -75,6 +94,16 @@ wss.on('connection', function connection(ws) {
 // app get
 app.get('/', function (req, res) {
     res.send('Hello World!');
+});
+
+// get all client
+app.get('/clients', function (req, res) {
+    res.send(clientsString);
+});
+
+// get all room with client
+app.get('/rooms', function (req, res) {
+    res.send(roomsString);
 });
 
 app.post('/event', function (req, res) {
@@ -105,10 +134,20 @@ app.post('/event', function (req, res) {
             rooms[clientId].forEach(clientId => {
                 if (clients[clientId]) {
                     clients[clientId].send(JSON.stringify({ event, eventData }));
+                } else {
+                    console.log(`Client ${clientId} not found or disconected`);
                 }
             });
 
             console.log(`Send message to room ${clientId}`);
+            return res.send({
+                message: 'success',
+                data: {
+                    roomId: clientId,
+                    event,
+                    eventData
+                }
+            }), 200;
         }
 
         return res.send('client not found or disconected'), 404;
@@ -118,6 +157,10 @@ app.post('/event', function (req, res) {
 });
 
 // Start the Express app
-app.listen(20001, function () {
+appHttps.listen(20001, function () {
     console.log('Express app listening on port 20001');
+});
+
+server.listen(20000, function () {
+    console.log('WSS server listening on port 20000');
 });
